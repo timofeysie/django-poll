@@ -1,6 +1,6 @@
-# MySite
+# The Django Voting Poll App
 
-[Created following the official tutorial](https://docs.djangoproject.com/en/4.2/intro/tutorial01/).
+Created following the [official tutorial](https://docs.djangoproject.com/en/4.2/intro/tutorial01/) for learning [Django](https://www.djangoproject.com/).
 
 ## Workflow
 
@@ -8,17 +8,30 @@
 python manage.py runserver
 python manage.py migrate
 python manage.py makemigrations polls
-python manage.py shell
+python manage.py shell # Use quit() or Ctrl-Z plus Return to exit
 python manage.py createsuperuser
 ```
 
 Site is served at: http://127.0.0.1:8000/
 
+ http://127.0.0.1:8000/admin/
+
+## Routes
+
+```txt
+/polls/
+/polls/34
+/polls/34/results/
+/polls/34/vote/
+```
+
 ## The polls app
 
-From the "Writing your first Django app" article, these are notes from the multi step tutorial.
+From the "Writing your first Django app" article on the [official Django docs site](https://docs.djangoproject.com/), these are notes from the four step tutorial.
 
-### Step 1
+I will just provide notes on the steps here for review purposes and reference.  The article itself should be used as the full guide.
+
+## Step 1
 
 Add a new app:
 
@@ -30,7 +43,7 @@ Create a new file polls.urls.py and unclude url patterns.
 
 Update mysite/urls.py to add a path to the polls url.
 
-### Step 2
+## Step 2
 
 [Part 2](https://docs.djangoproject.com/en/4.2/intro/tutorial02/) of the official Django tutorial.
 
@@ -78,7 +91,7 @@ Add a reference to its configuration class in the INSTALLED_APPS setting in mysi
 
 ```py
 INSTALLED_APPS = [
-    "polls.apps.PollsConfig", # <---
+    "polls.apps.PollsConfig",
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -112,7 +125,7 @@ python manage.py shell
 
 Add
 
-## Register models
+### Register models
 
 In polls/admin.py add the question:
 
@@ -134,3 +147,122 @@ python manage.py runserver
 Goto: http://127.0.0.1:8000/admin/
 
 You can login and see the form which was automatically generated from the Question model.
+
+## Step 3
+
+Add views to polls/views.py such as this:
+
+```py
+def detail(request, question_id):
+    return HttpResponse("You're looking at question %s." % question_id)
+```
+
+Add the new view to the urlpatterns array in the polls/urls.py like this:
+
+```py
+# ex: /polls/5/
+path("<int:question_id>/", views.detail, name="detail"),
+```
+
+Then in polls/view.py, update the index() view to displays the latest 5 poll questions:
+
+```py
+def index(request):
+    latest_question_list = Question.objects.order_by("-pub_date")[:5]
+    output = ", ".join([q.question_text for q in latest_question_list])
+    return HttpResponse(output)
+```
+
+Django will look for templates in a directory within apps, se we create this file: polls/templates/polls/index.html
+
+```html
+{% if latest_question_list %}
+    <ul>
+    {% for question in latest_question_list %}
+        <li><a href="/polls/{{ question.id }}/">{{ question.question_text }}</a></li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p>No polls are available.</p>
+{% endif %}
+```
+
+Next update polls/views.py to use the template:
+
+```py
+from django.http import HttpResponse
+from django.template import loader
+from .models import Question
+
+def index(request):
+    latest_question_list = Question.objects.order_by("-pub_date")[:5]
+    template = loader.get_template("polls/index.html")
+    context = {
+        "latest_question_list": latest_question_list,
+    }
+    return HttpResponse(template.render(context, request))
+```
+
+### The render() shortcut
+
+There is a render() shortcut to load a template, fill a context and return an HttpResponse object with the result of the rendered template.
+
+```py
+from django.shortcuts import render
+
+def index(request):
+    latest_question_list = Question.objects.order_by("-pub_date")[:5]
+    context = {"latest_question_list": latest_question_list}
+    return render(request, "polls/index.html", context)
+```
+
+There is also a shortcut called get_object_or_404.  We go from this detail page:
+
+```py
+def detail(request, question_id):
+    try:
+        question = Question.objects.get(pk=question_id)
+    except Question.DoesNotExist:
+        raise Http404("Question does not exist")
+    return render(request, "polls/detail.html", {"question": question})
+```
+
+To this:
+
+```py
+def detail(request, question_id):
+    question = get_object_or_404(Question, pk=question_id)
+    return render(request, "polls/detail.html", {"question": question})
+```
+
+This helps de-couple the model layer to the view layer.
+
+### Template functions
+
+This code snippet is shown to show the choices for a poll:
+
+```html
+<ul>
+{% for choice in question.choice_set.all %}
+    <li>{{ choice.choice_text }}</li>
+{% endfor %}
+</ul>
+```
+
+That is actually the function question.choice_set.all() that returns an iterable of Choice objects and is suitable for use in the {% for %} tag.
+
+There is a link to the [templates](https://docs.djangoproject.com/en/4.2/topics/templates/) documents also shown.
+
+### The {% url %} template tag
+
+Remove a reliance on specific URL paths defined in your url configurations by using the {% url %} template tag.
+
+```html
+<li><a href="{% url 'detail' question.id %}">{{ question.question_text }}</a></li>
+```
+
+In the urls.py we can add an app name to be used to namespace the url.  Then update the url tag like this:
+
+```html
+{% url 'polls:detail' question.id %}
+```
