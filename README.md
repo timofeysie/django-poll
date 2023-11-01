@@ -148,6 +148,20 @@ Goto: http://127.0.0.1:8000/admin/
 
 You can login and see the form which was automatically generated from the Question model.
 
+Note if you see an error like this:
+
+```err
+name 'HttpResponseRedirect' is not defined
+```
+
+That means you need to import that like this:
+
+```py
+from django.http import HttpResponse, HttpResponseRedirect
+```
+
+I'm not going to repeat all the demo code shown on the tutorial, as this is just a quick reference to the official docs.
+
 ## Step 3
 
 Add views to polls/views.py such as this:
@@ -266,3 +280,89 @@ In the urls.py we can add an app name to be used to namespace the url.  Then upd
 ```html
 {% url 'polls:detail' question.id %}
 ```
+
+## Step 4
+
+[Step 4](https://docs.djangoproject.com/en/4.2/intro/tutorial04/) begins with a form.
+
+```html
+<form action="{% url 'polls:vote' question.id %}" method="post">
+    {% csrf_token %}
+    <fieldset>
+        <legend><h1>{{ question.question_text }}</h1></legend>
+        {% if error_message %}
+        <p><strong>{{ error_message }}</strong></p>
+        {% endif %} {% for choice in question.choice_set.all %}
+        <input
+            type="radio"
+            name="choice"
+            id="choice{{ forloop.counter }}"
+            value="{{ choice.id }}"
+        />
+        <label for="choice{{ forloop.counter }}">{{ choice.choice_text }}</label
+        ><br />
+        {% endfor %}
+    </fieldset>
+    <input type="submit" value="Vote" />
+</form>
+```
+
+The vote function in polls/views.py looks like this:
+
+```py
+def vote(request, question_id):
+    question = get_object_or_404(Question, pk=question_id)
+    try:
+        selected_choice = question.choice_set.get(pk=request.POST["choice"])
+    except (KeyError, Choice.DoesNotExist):
+        # Redisplay the question voting form.
+        return render(
+            request,
+            "polls/detail.html",
+            {
+                "question": question,
+                "error_message": "You didn't select a choice.",
+            },
+        )
+    else:
+        selected_choice.votes += 1
+        selected_choice.save()
+        # Always return an HttpResponseRedirect after successfully dealing
+        # with POST data. This prevents data from being posted twice if a
+        # user hits the Back button.
+        return HttpResponseRedirect(reverse("polls:results", args=(question.id,)))
+```
+
+The last line avoids having to hardcode a URL in the view function.
+
+See the official docs for the [request is an HttpRequest object](https://docs.djangoproject.com/en/4.2/ref/request-response/).
+
+The above redirects to results in the same file:
+
+```py
+def results(request, question_id):
+    question = get_object_or_404(Question, pk=question_id)
+    return render(request, "polls/results.html", {"question": question})
+```
+
+Then create a polls/results.html template:
+
+```html
+<h1>{{ question.question_text }}</h1>
+
+<ul>
+{% for choice in question.choice_set.all %}
+    <li>{{ choice.choice_text }} -- {{ choice.votes }} vote{{ choice.votes|pluralize }}</li>
+{% endfor %}
+</ul>
+
+<a href="{% url 'polls:detail' question.id %}">Vote again?</a>
+```
+
+### Generic views system
+
+There has been some talk about avoiding hardcoding URLs.
+
+The ListView and DetailView generic views abstract the concepts of “display a list of objects” and “display a detail page for a particular type of object” respectively.
+
+Convert our poll app to use the generic views system.
