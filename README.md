@@ -366,3 +366,48 @@ There has been some talk about avoiding hardcoding URLs.
 The ListView and DetailView generic views abstract the concepts of “display a list of objects” and “display a detail page for a particular type of object” respectively.
 
 Convert our poll app to use the generic views system.
+
+For example in urls.py, this:
+
+```py
+    path("", views.index, name="index"),
+    path("<int:question_id>/", views.detail, name="detail"),
+    path("<int:question_id>/results/", views.results, name="results"),
+```
+
+Becomes this:
+
+```py
+    path("", views.IndexView.as_view(), name="index"),
+    path("<int:pk>/", views.DetailView.as_view(), name="detail"),
+    path("<int:pk>/results/", views.ResultsView.as_view(), name="results"),
+```
+
+Then remove index, detail, and results views and use Django’s generic class views instead.
+
+So this:
+
+```py
+def index(request):
+    latest_question_list = Question.objects.order_by("-pub_date")[:5]
+    context = {"latest_question_list": latest_question_list}
+    return render(request, "polls/index.html", context)
+```
+
+becomes this:
+
+```py
+class IndexView(generic.ListView):
+    template_name = "polls/index.html"
+    context_object_name = "latest_question_list"
+
+    def get_queryset(self):
+        """Return the last five published questions."""
+        return Question.objects.order_by("-pub_date")[:5]
+```
+
+I thought there would be less code.
+
+## Part 5
+
+In [this part](https://docs.djangoproject.com/en/4.2/intro/tutorial05/)...
