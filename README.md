@@ -10,6 +10,7 @@ python manage.py migrate
 python manage.py makemigrations polls
 python manage.py shell # Use quit() or Ctrl-Z plus Return to exit
 python manage.py createsuperuser
+python manage.py test polls # run the sample test
 ```
 
 Site is served at: http://127.0.0.1:8000/
@@ -408,6 +409,155 @@ class IndexView(generic.ListView):
 
 I thought there would be less code.
 
-## Part 5
+## Part 5: automated testing
 
-In [this part](https://docs.djangoproject.com/en/4.2/intro/tutorial05/)...
+In [this part](https://docs.djangoproject.com/en/4.2/intro/tutorial05/) we write a test to confirm a bug before fixing it.
+
+The bug: Question.was_published_recently() method returns True if the Question was published within the last day (which is correct) but also if the Question’s pub_date field is in the future (not correct).
+
+```py
+class QuestionModelTests(TestCase):
+    def test_was_published_recently_with_future_question(self):
+        """
+        was_published_recently() returns False for questions whose pub_date
+        is in the future.
+        """
+        time = timezone.now() + datetime.timedelta(days=30)
+        future_question = Question(pub_date=time)
+        self.assertIs(future_question.was_published_recently(), False)
+```
+
+Interesting commenting method there.  As a Javascript developer, I'm used to the ```/* */``` code blocks.
+
+The ```self.assertIs(function.does_something(), True/False)``` is something I understand.  Assertion libraries are the heart of testing.
+
+In this case, ```future_question.was_published_recently()``` should be ```False``` because it's in the future.
+
+Run the test:
+
+```py
+$ python manage.py test polls
+======================================================================
+FAIL: test_was_published_recently_with_future_question (polls.tests.QuestionModelTests)
+was_published_recently() returns False for questions whose pub_date
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\timof\repos\django\mysite\polls\tests.py", line 17, in test_was_published_recently_with_future_question
+    self.assertIs(future_question.was_published_recently(), False)
+AssertionError: True is not False
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+FAILED (failures=1)
+```
+
+The function currently looks like this in the file: polls\models.py
+
+```py
+class Question(models.Model):
+    question_text = models.CharField(max_length=200)
+    pub_date = models.DateTimeField("date published")
+    def __str__(self):
+        return self.question_text
+    def was_published_recently(self):
+        return self.pub_date >= timezone.now() - datetime.timedelta(days=1)
+```
+
+It should return False if its pub_date is in the future.  Here is the fix:
+
+```py
+def was_published_recently(self):
+    now = timezone.now()
+    return now - datetime.timedelta(days=1) <= self.pub_date <= now
+```
+
+This is a good example.  Testing is hard to get right.  When to test, what to test, how to setup a test, etc.
+
+Writing a test to confirm a bug and then fix it creates coverage of a weak point in the code.  There might be a time in the future where this starts to fail again in an odd circumstance.  Having a test that will then fail will highlight this without manual testing, or worse a user discovering the bug.
+
+The next section improves the polls view by applying the future logic to exclude future dates and limit to five polls.
+
+In polls/views.pi:
+
+```py
+class IndexView(generic.ListView):
+    template_name = "polls/index.html"
+    context_object_name = "latest_question_list"
+
+    def get_queryset(self):
+        return Question.objects.filter(pub_date__lte=timezone.now()).order_by("-pub_date")[
+            :5
+        ]
+```
+
+Remember the "latest_question_list" object is used in the file: polls\templates\polls\index.html
+
+```html
+{% if latest_question_list %}
+    <ul>
+    {% for question in latest_question_list %}
+        <li><a href="{% url 'polls:detail' question.id %}">{{ question.question_text }}</a></li>
+    {% endfor %}
+```
+
+The formatting of the get_queryset function looks a little odd to me.  Coming from a Javascript background, I would find something like this more readable:
+
+```js
+def get_queryset(self):
+    from_now = pub_date__lte=timezone.now()
+    published_questions = Question.objects.filter(from_now)
+    ordered_questions = published_questions.order_by("-pub_date")
+    last_five = ordered_questions[:5]
+    return last_five
+```
+
+That's probably more verbose than most would agree with, but just pointing that out here.  The sample code actually includes a description in front of the function which I left out above since I just wanted to focus on the code:
+
+```py
+def get_queryset(self):
+    """
+    Return the last five published questions (not including those set to be
+    published in the future).
+    """
+    return Question.objects.filter(pub_date__lte=timezone.now()).order_by("-pub_date")[
+        :5
+    ]
+```
+
+For me the variable names become the documentation which is what I prefer.  Variable names can be tough.
+
+## Five more tests
+
+The test_future_question looks like this:
+
+```py
+    def test_future_question(self):
+        """
+        Questions with a pub_date in the future aren't displayed on
+        the index page.
+        """
+        create_question(question_text="Future question.", days=30)
+        response = self.client.get(reverse("polls:index"))
+        self.assertContains(response, "No polls are available.")
+        self.assertQuerySetEqual(response.context["latest_question_list"], [])
+```
+
+However, I see this error:
+
+```sh
+======================================================================
+ERROR: test_future_question (polls.tests.QuestionIndexViewTests)
+Questions with a pub_date in the future aren't displayed on
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\timof\repos\django\mysite\polls\tests.py", line 75, in test_future_question
+    self.assertQuerySetEqual(response.context["latest_question_list"], [])
+AttributeError: 'QuestionIndexViewTests' object has no attribute 'assertQuerySetEqual'
+```
+
+And in fact, all five tests are failing.  Given my experience with thise code, it would take a bit more to figure out why.  Worth asking ChatGPT about the missing assertQuerySetEqual.
+
+ChatGPT: *The assertQuerySetEqual method is provided by the TestCase class from Django's test framework, but it seems that your QuestionIndexViewTests class is not inheriting from TestCase. To resolve this issue, you should make sure that QuestionIndexViewTests inherits from django.test.TestCase or a suitable test case class that provides the assertQuerySetEqual method.*
+
+However, the code was already doing this.  Asking further, it appears there was some problems with the indentation.  I'm not sure actually if my editor which is great for Javascript is appropriate for Python and its tabbing strictness.  I feel a little lost with this kind of invisible error.  It seems like the editor should be able to help with indentation errors...
+
+Then ChatGPT suggests that assertQuerySetEqual should be assertQuerysetEqual.  See the difference?  The set is lowercase.  I make this change and all the tests pass.  However the link to [the documentation](https://docs.djangoproject.com/en/4.2/topics/testing/tools/#django.test.TransactionTestCase.assertQuerySetEqual) for this function shows a capital S!
